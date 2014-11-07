@@ -131,7 +131,7 @@ loop(Agent_list, Last_rfp, Past_proposals, Current_rfps) ->
           New_past_props = Prev_rfp_list ++ [Proposal],
           send_msg_to_list(Submittor, {bid, Proposal}),
           loop(Agent_list, Last_rfp, New_past_props, Rfp_list);
-        {[{Rfp_no, _, _, Services1, Cost1}], [{_, Submittor, _, _, Agent_bids, Agent_nobids}]} ->
+        {[{Rfp_no, _, _, _, Cost1}], [{_, Submittor, _, _, Agent_bids, Agent_nobids}]} ->
           Ccost1 = cost:calculate(Cost1),
           Ccost = cost:calculate(Cost),
           Rfp_list = case lists:member(Agent, Agent_bids) of
@@ -141,7 +141,7 @@ loop(Agent_list, Last_rfp, Past_proposals, Current_rfps) ->
           if
             Ccost1 > Ccost ->
               New_past_props = Prev_rfp_list ++ [Proposal],
-              send_msg_to_list(Submittor, {bid, {Rfp_no, Input, Output, Services1, Cost1}}),
+              send_msg_to_list(Submittor, {bid, {Rfp_no, Input, Output, Services, Cost}}),
               loop(Agent_list, Last_rfp, New_past_props, Rfp_list);
             true ->
               loop(Agent_list, Last_rfp, Past_proposals, Rfp_list)
@@ -171,6 +171,9 @@ loop(Agent_list, Last_rfp, Past_proposals, Current_rfps) ->
     {status, Pid} ->
       Pid ! {Agent_list, Last_rfp, Past_proposals, Current_rfps},
       loop(Agent_list, Last_rfp, Past_proposals, Current_rfps);
+
+    reset -> send_msg_to_list(Agent_list, reset),
+             loop(Agent_list, 0, [], []);
 
     stop -> ok
   end.
