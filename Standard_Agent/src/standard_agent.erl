@@ -58,7 +58,7 @@ loop(Config, Rfps) ->
 %% Immediately send bid to broker
 %% Return empty list
 review_rfp({Name, In, Out, Cost}, {Rfp_no, _, In, Out}) ->
-  send_msg(broker_agent, {bid, {Rfp_no, In, Out, [Name], Cost}}),
+  send_msg({bid, {Rfp_no, In, Out, [Name], Cost}}),
   %%broker_agent ! { bid, {Rfp_no, In, Out, [Name], Cost}},
   [];
 %% Case 1 - Inputs match but Outputs do not
@@ -68,7 +68,7 @@ review_rfp({Name, In, Out, Cost}, {Rfp_no, _, In, Out}) ->
 review_rfp({Name, In, Agent_Out, _}, {Rfp_no, Submittor, In, Out}) ->
   case lists:member(Name, Submittor) of
     true ->
-      send_msg(broker_agent, {no_bid, {Name, Rfp_no}}),
+      send_msg({no_bid, {Name, Rfp_no}}),
       %%broker_agent ! {no_bid, {Name, Rfp_no}},
       [];
     false ->
@@ -77,7 +77,7 @@ review_rfp({Name, In, Agent_Out, _}, {Rfp_no, Submittor, In, Out}) ->
         {rfp_no, Assigned_rfp_no} ->
           [{Assigned_rfp_no, Rfp_no, Submittor, In, Out}];
         {error, _} ->
-          send_msg(broker_agent, {no_bid, {Name, Rfp_no}}),
+          send_msg({no_bid, {Name, Rfp_no}}),
           %%broker_agent ! {no_bid, {Name, Rfp_no}},
           []
       end
@@ -85,7 +85,7 @@ review_rfp({Name, In, Agent_Out, _}, {Rfp_no, Submittor, In, Out}) ->
 %% Case 2 - Inputs don't match
 %%  Send no bid to broker
 review_rfp({Name, _, _, _}, {Rfp_no, _, _, _}) ->
-  send_msg(broker_agent, {no_bid, {Name, Rfp_no}}),
+  send_msg({no_bid, {Name, Rfp_no}}),
   %% broker_agent ! {no_bid, {Name, Rfp_no}},
   [].
 
@@ -99,7 +99,7 @@ no_bid_rfp({Name, _, _, _}, Rfps, Rfp_no) ->
                              Assigned_rfp_no == Rfp_no end, Rfps),
   case Rfp_info of
     [] -> true;
-    [{_, Prime_rfp_no, _, _, _}] -> send_msg(broker_agent, {no_bid, {Name, Prime_rfp_no}})
+    [{_, Prime_rfp_no, _, _, _}] -> send_msg({no_bid, {Name, Prime_rfp_no}})
   end,
   Rfp_list.
 
@@ -114,11 +114,14 @@ update_rfp({Name, _, _, Cost}, Rfps, Proposal) ->
   case Request_record of
     [] -> true;  %% do nothing
     _ -> [{_, Prime_rfp_no, _, In, Out} | _] = Request_record,
-         send_msg(broker_agent, {bid, {Prime_rfp_no, In, Out, [Name | Services], cost:add(Prop_cost,Cost)}})
+         send_msg({bid, {Prime_rfp_no, In, Out, [Name | Services], cost:add(Prop_cost,Cost)}})
          %% broker_agent ! {bid, {Prime_rfp_no, In, Out,
          %%      [Name | Services], cost:add(Prop_cost,Cost)}}
   end,
   Rfps.
+
+send_msg(Message) ->
+  broker_agent ! Message.
 
 send_msg(Pid, Message) ->
   Pid ! Message.
