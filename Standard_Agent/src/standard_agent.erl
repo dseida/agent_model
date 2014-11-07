@@ -33,6 +33,7 @@ status(Agent_Name) ->
 loop(Config, Rfps) ->
   receive
     %%  {Rfp_no, Submittor, Input, Output} = Cand_Rfp
+    %%  {Assigned_Rfp_no, Prime_rfp_no,
     {rfp, Cand_Rfp} ->
       Rfp_list = review_rfp(Config, Cand_Rfp) ++ Rfps,
       loop(Config, Rfp_list);
@@ -51,8 +52,8 @@ loop(Config, Rfps) ->
 %% Trivial case - Inputs and Outputs match
 %% Immediately send bid to broker
 %% Return empty list
-review_rfp({Name, In, Out, Cost}, {Rfp_no, Submittor, In, Out}) ->
-  broker_agent ! { bid, {Rfp_no, In, Out, [Name | Submittor], Cost}},
+review_rfp({Name, In, Out, Cost}, {Rfp_no, _, In, Out}) ->
+  broker_agent ! { bid, {Rfp_no, In, Out, [Name], Cost}},
   [];
 %% Case 1 - Inputs match but Outputs do not
 %% If Agent is in the existing chain of bidders -> no bid
@@ -66,7 +67,7 @@ review_rfp({Name, In, Agent_Out, _}, {Rfp_no, Submittor, In, Out}) ->
     false ->
       Problem = { [Name | Submittor], Agent_Out, Out},
       case broker_agent:new_rfp(Problem) of
-        {ok, Assigned_rfp_no} ->
+        {rfp_no, Assigned_rfp_no} ->
           [{Assigned_rfp_no, Rfp_no, Submittor, In, Out}];
         {error, _} ->
           broker_agent ! {no_bid, {Name, Rfp_no}},
@@ -85,22 +86,27 @@ review_rfp({Name, _, _, _}, {Rfp_no, _, _, _}) ->
 %% Going through the full list twice -- inefficient, improve this later
 %% [{Assigned_rfp_no, Prime_rfp_no, Submittor_list, In, Out}, ...] = Rfps
 no_bid_rfp({Name, _, _, _}, Rfps, Rfp_no) ->
-  [{_, Prime_rfp_no, _, _, _} | _] =
-    lists:filter(fun({Assigned_rfp_no, _, _, _, _}) ->
-    Assigned_rfp_no == Rfp_no end, Rfps),
-  broker_agent ! {no_bid, {Name, Prime_rfp_no}},
-  lists:filter(fun({Assigned_rfp_no, _, _, _, _}) ->
-    Assigned_rfp_no /= Rfp_no end, Rfps).
+  {Rfp_info, Rfp_list} = lists:partition(fun({Assigned_rfp_no, _, _, _, _}) ->
+                             Assigned_rfp_no == Rfp_no end, Rfps),
+  case Rfp_info of
+    [] -> true;
+    [{_, Prime_rfp_no, _, _, _}] -> broker_agent ! {no_bid, {Name, Prime_rfp_no}}
+  end,
+  Rfp_list.
 
 %% Add mechanism to periodically delete rfps from list
 %% Will require additional checks for late arriving proposals
 %% (after deleted from the list)
 update_rfp({Name, _, _, Cost}, Rfps, Proposal) ->
   {Rfp_no, _, _, Services, Prop_cost} = Proposal,
-  [{_, Prime_rfp_no, _, In, Out} | _] =
+  Request_record =
     lists:filter(fun({Assigned_rfp_no, _, _, _, _}) ->
       Assigned_rfp_no == Rfp_no end, Rfps),
-  broker_agent ! {bid, {Prime_rfp_no, In, Out,
-                        [Name | Services], Prop_cost + Cost}},
+  case Request_record of
+    [] -> true;  %% do nothing
+    _ -> [{_, Prime_rfp_no, _, In, Out} | _] = Request_record,
+         broker_agent ! {bid, {Prime_rfp_no, In, Out,
+               [Name | Services], cost:add(Prop_cost,Cost)}}
+  end,
   Rfps.
 
