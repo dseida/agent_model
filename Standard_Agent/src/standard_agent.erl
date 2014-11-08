@@ -50,7 +50,7 @@ loop(Config, Rfps) ->
       send_msg(Pid, {Config, Rfps}),
       %%Pid ! {Config, Rfps},
       loop(Config, Rfps);
-    reset -> loop([], []);
+    reset -> loop(Config, []);
     stop -> ok
   end.
 
