@@ -10,7 +10,7 @@
 -author("David Seida").
 
 %% API
--export([start/0, stop/0, status/0, new_rfp/1, loop/0, start_agents/0]).
+-export([start/0, stop/0, status/0, reset/0, new_rfp/1, loop/0, start_agents/0]).
 
 start() ->
   Pid = spawn(broker_agent, loop, []),
@@ -27,6 +27,9 @@ stop() ->
 status() ->
   broker_agent ! {status, self()},
   ok.
+
+reset() ->
+  broker_agent ! reset.
 
 new_rfp(Problem) ->
   %% add logic to send {error, "Invalid Problem"} to calling routine if Problem does not meet the form {Submittor, Input, Output}
@@ -175,7 +178,8 @@ loop(Agent_list, Last_rfp, Past_proposals, Current_rfps) ->
     reset -> send_msg_to_list(Agent_list, reset),
              loop(Agent_list, 0, [], []);
 
-    stop -> ok
+    stop -> send_msg_to_list(Agent_list, stop),
+            ok
   end.
 
 
