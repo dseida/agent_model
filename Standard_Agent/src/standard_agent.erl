@@ -73,7 +73,7 @@ review_rfp({Name, In, Agent_Out, _}, {Rfp_no, Submittor, In, Out}) ->
       [];
     false ->
       Problem = { [Name | Submittor], Agent_Out, Out},
-      case broker_agent:new_rfp(Problem) of
+      case broker_agent:new_problem(Problem) of
         {rfp_no, Assigned_rfp_no} ->
           [{Assigned_rfp_no, Rfp_no, Submittor, In, Out}];
         {error, _} ->

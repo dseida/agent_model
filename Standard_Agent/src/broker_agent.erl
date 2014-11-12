@@ -10,7 +10,7 @@
 -author("David Seida").
 
 %% API
--export([start/0, stop/0, status/0, reset/0, new_rfp/1, loop/0, start_agents/0]).
+-export([start/0, stop/0, status/0, reset/0, new_problem/1, loop/0, start_agents/0]).
 
 start() ->
   Pid = spawn(broker_agent, loop, []),
@@ -31,10 +31,10 @@ status() ->
 reset() ->
   broker_agent ! reset.
 
-new_rfp(Problem) ->
+new_problem(Problem) ->
   %% add logic to send {error, "Invalid Problem"} to calling routine if Problem does not meet the form {Submittor, Input, Output}
   %% where Input and Output are lists within the tuple
-  broker_agent ! {rfp, {self(),Problem}},
+  broker_agent ! {problem, {self(),Problem}},
   receive
     {rfp_no, Rfp_no} -> {rfp_no, Rfp_no}
   end.
@@ -86,7 +86,7 @@ loop(Agent_list, Last_rfp, Past_proposals, Current_rfps) ->
   %%  Agent_nobids = [ Agent_nameX, ...]
   receive
     %%  Problem = {Submittor, Input, Output}
-    {rfp, {Pid, Problem}} ->
+    {problem, {Pid, Problem}} ->
       %% 1)  Check to see if the problem has already been solved
       %%     If so, return the original RFP number and then mail the result to the requester
       %% 2)  Check to see if we are already working on the problem
@@ -99,16 +99,16 @@ loop(Agent_list, Last_rfp, Past_proposals, Current_rfps) ->
                lists:partition(fun({_, _, Input2, Output2, _, _}) -> {Input2, Output2} == {Input, Output} end, Current_rfps),
       case {Previous_rfp, Current_rfp} of
         {[], []} -> Rfp_no = Last_rfp + 1,
-                    Pid ! {rfp_no, Rfp_no},
+                    send_msg_to_list([Pid] , {rfp_no, Rfp_no}),
                     send_msg_to_list(Agent_list, {rfp, {Rfp_no, Submittor, Input, Output}}),
                     %% add problem to RFP list
                     Rfp_list = [{Rfp_no, Submittor, Input, Output, [], []} | Current_rfps],
                     loop(Agent_list, Rfp_no, Past_proposals, Rfp_list);
         {[], [{Rfp_no, Rfp_submittor, _, _, Agent_bids, Agent_nobids}]} ->
-                   Rfp_list = Rem_Rfp_list ++ [{Rfp_no, Submittor ++ Rfp_submittor, Input, Output, Agent_bids, Agent_nobids}],
-                   Pid ! {rfp_no, Rfp_no},
+                   Rfp_list =  [{Rfp_no, Submittor ++ Rfp_submittor, Input, Output, Agent_bids, Agent_nobids} | Rem_Rfp_list],
+                   send_msg_to_list([Pid], {rfp_no, Rfp_no}),
                    loop(Agent_list, Last_rfp, Past_proposals, Rfp_list);
-        {[{Rfp_no, _, _, Services, Cost}], _} -> Pid ! {rfp_no, Rfp_no},
+        {[{Rfp_no, _, _, Services, Cost}], _} -> send_msg_to_list([Pid], {rfp_no, Rfp_no}),
                                                send_msg_to_list(Submittor, {bid, {Rfp_no, Input, Output, Services, Cost}}),
                                                loop(Agent_list, Last_rfp, Past_proposals, Current_rfps)
       end;
@@ -130,20 +130,20 @@ loop(Agent_list, Last_rfp, Past_proposals, Current_rfps) ->
           %% Proposal is not a current RFP or a previous RFP --> ignore and process the next message
           loop(Agent_list, Last_rfp, Past_proposals, Current_rfps);
         {[], [{Rfp_no, Submittor, _, _, Agent_bids, Agent_nobids}]} ->
-          Rfp_list = Rem_Rfp_list ++ [{Rfp_no, Submittor, Input, Output, Agent_bids ++ [Agent], Agent_nobids}],
-          New_past_props = Prev_rfp_list ++ [Proposal],
+          Rfp_list =  [{Rfp_no, Submittor, Input, Output, Agent_bids ++ [Agent], Agent_nobids} | Rem_Rfp_list],
+          New_past_props =  [Proposal | Prev_rfp_list],
           send_msg_to_list(Submittor, {bid, Proposal}),
           loop(Agent_list, Last_rfp, New_past_props, Rfp_list);
         {[{Rfp_no, _, _, _, Cost1}], [{_, Submittor, _, _, Agent_bids, Agent_nobids}]} ->
           Ccost1 = cost:calculate(Cost1),
           Ccost = cost:calculate(Cost),
           Rfp_list = case lists:member(Agent, Agent_bids) of
-                       false -> Rem_Rfp_list ++ [{Rfp_no, Submittor, Input, Output, Agent_bids ++ [Agent], Agent_nobids}];
+                       false -> [{Rfp_no, Submittor, Input, Output, Agent_bids ++ [Agent], Agent_nobids} | Rem_Rfp_list];
                        true -> Current_rfps
                      end,
           if
             Ccost1 > Ccost ->
-              New_past_props = Prev_rfp_list ++ [Proposal],
+              New_past_props =  [Proposal | Prev_rfp_list],
               send_msg_to_list(Submittor, {bid, {Rfp_no, Input, Output, Services, Cost}}),
               loop(Agent_list, Last_rfp, New_past_props, Rfp_list);
             true ->
@@ -161,8 +161,8 @@ loop(Agent_list, Last_rfp, Past_proposals, Current_rfps) ->
       {Current_rfp, Rem_Rfp_list} =
         lists:partition(fun({Rfp, _, _, _, _, _}) -> Rfp == Rfp_no end, Current_rfps),
       [{_, Submittor, Input, Output, Agent_bids, Agent_nobids}] = Current_rfp,
-      New_agent_nobids = Agent_nobids ++ [Name],
-      Rfp_list = Rem_Rfp_list ++ [{Rfp_no, Submittor, Input, Output, Agent_bids, New_agent_nobids}],
+      New_agent_nobids = [Name | Agent_nobids],
+      Rfp_list =  [{Rfp_no, Submittor, Input, Output, Agent_bids, New_agent_nobids} | Rem_Rfp_list],
       Rem_agents = lists:subtract(Agent_list, New_agent_nobids),
       if
         Rem_agents == [] -> send_msg_to_list(Submittor, {no_bid, Rfp_no});
@@ -172,7 +172,7 @@ loop(Agent_list, Last_rfp, Past_proposals, Current_rfps) ->
       loop(Agent_list, Last_rfp, Past_proposals, Rfp_list);
 
     {status, Pid} ->
-      Pid ! {Agent_list, Last_rfp, Past_proposals, Current_rfps},
+      send_msg_to_list([Pid] , {Agent_list, Last_rfp, Past_proposals, Current_rfps}),
       loop(Agent_list, Last_rfp, Past_proposals, Current_rfps);
 
     reset -> send_msg_to_list(Agent_list, reset),
