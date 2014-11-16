@@ -35,16 +35,20 @@ status(Agent_Name) ->
 
 loop(Config, Rfps) ->
   receive
-    %%  {Rfp_no, Submittor, Input, Output} = Cand_Rfp
-    %%  {Assigned_Rfp_no, Prime_rfp_no,
+    %%  {Reply_to, Input, Output, Prior_Agents} = Cand_Rfp
+    %%  [{Assigned_Rfp_no, Prime_rfp_no, Submittor, In, Out}, ...] = Rfps
     {rfp, Cand_Rfp} ->
       Rfp_list = review_rfp(Config, Cand_Rfp) ++ Rfps,
       loop(Config, Rfp_list);
     {bid, Proposal} ->
       Rfp_list = update_rfp(Config, Rfps, Proposal),
       loop(Config, Rfp_list);
-    {no_bid, Rfp_no} ->
-      Rfp_list = no_bid_rfp(Config, Rfps, Rfp_no),
+    {survey, Pid, {Input, Output}} ->
+      {Agent_Name, Agent_In, Agent_Out, _} = Config,
+      send_msg(Pid, {survey_response, {Agent_Name, Input, Agent_In == Input, Output, Agent_Out == Output}}),
+      loop(Config, Rfps);
+    {no_bid, {_, Transform}} ->
+      Rfp_list = no_bid_rfp(Config, Rfps, Transform),
       loop(Config, Rfp_list);
     {status, Pid} ->
       send_msg(Pid, {Config, Rfps}),
@@ -57,36 +61,32 @@ loop(Config, Rfps) ->
 %% Trivial case - Inputs and Outputs match
 %% Immediately send bid to broker
 %% Return empty list
-review_rfp({Name, In, Out, Cost}, {Rfp_no, _, In, Out}) ->
-  send_msg({bid, {Rfp_no, In, Out, [Name], Cost}}),
-  %%broker_agent ! { bid, {Rfp_no, In, Out, [Name], Cost}},
+review_rfp({Name, In, Out, Cost}, {_, In, Out, _}) ->
+  send_msg({bid, {In, Out, [Name], Cost}}),
   [];
 %% Case 1 - Inputs match but Outputs do not
 %% If Agent is in the existing chain of bidders -> no bid
 %% Otherwise, Send subproblem statement to broker
 %% Return RFP status for addition to RFP list
-review_rfp({Name, In, Agent_Out, _}, {Rfp_no, Submittor, In, Out}) ->
-  case lists:member(Name, Submittor) of
+review_rfp({Name, In, Agent_Out, _}, {Reply_to, In, Out, Prior_Agents}) ->
+  case lists:member(Name, Prior_Agents) of
     true ->
-      send_msg({no_bid, {Name, Rfp_no}}),
-      %%broker_agent ! {no_bid, {Name, Rfp_no}},
+      send_msg({no_bid, {Name, {In, Out}}}),
       [];
     false ->
-      Problem = { [Name | Submittor], Agent_Out, Out},
-      case broker_agent:new_problem(Problem) of
-        {rfp_no, Assigned_rfp_no} ->
-          [{Assigned_rfp_no, Rfp_no, Submittor, In, Out}];
+      Problem = { [Name], Agent_Out, Out, [Name | Prior_Agents]},
+      case broker_agent:new_rfp(Problem) of
+        {rfp_no, _} ->
+          [{Reply_to, In, Out, Prior_Agents}];
         {error, _} ->
-          send_msg({no_bid, {Name, Rfp_no}}),
-          %%broker_agent ! {no_bid, {Name, Rfp_no}},
+          send_msg({no_bid, {Name, {In, Out}}}),
           []
       end
   end;
 %% Case 2 - Inputs don't match
 %%  Send no bid to broker
-review_rfp({Name, _, _, _}, {Rfp_no, _, _, _}) ->
-  send_msg({no_bid, {Name, Rfp_no}}),
-  %% broker_agent ! {no_bid, {Name, Rfp_no}},
+review_rfp({Name, _, _, _}, {_, In, Out, _}) ->
+  send_msg({no_bid, {Name, {In, Out}}}),
   [].
 
 %% When receiving no_bid from broker on requested subcontractors this
@@ -94,33 +94,32 @@ review_rfp({Name, _, _, _}, {Rfp_no, _, _, _}) ->
 %% the RFP list.
 %% Going through the full list twice -- inefficient, improve this later
 %% [{Assigned_rfp_no, Prime_rfp_no, Submittor_list, In, Out}, ...] = Rfps
-no_bid_rfp({Name, _, _, _}, Rfps, Rfp_no) ->
-  {Rfp_info, Rfp_list} = lists:partition(fun({Assigned_rfp_no, _, _, _, _}) ->
-                             Assigned_rfp_no == Rfp_no end, Rfps),
+no_bid_rfp({Name, In, _, _}, Rfps, {_, Output}) ->
+  {Rfp_info, Rfp_list} = lists:partition(fun({_, In1, Out1, _}) ->
+              {In1, Out1} == {In, Output} end, Rfps),
   case Rfp_info of
     [] -> true;
-    [{_, Prime_rfp_no, _, _, _}] -> send_msg({no_bid, {Name, Prime_rfp_no}})
+    [_] -> send_msg({no_bid, {Name, {In, Output}}})
   end,
   Rfp_list.
 
 %% Add mechanism to periodically delete rfps from list
 %% Will require additional checks for late arriving proposals
 %% (after deleted from the list)
-update_rfp({Name, _, _, Cost}, Rfps, Proposal) ->
-  {Rfp_no, _, _, Services, Prop_cost} = Proposal,
+update_rfp({Name, Input, _, Cost}, Rfps, Proposal) ->
+  { _In, Out, Services, Prop_cost} = Proposal,
   Request_record =
-    lists:filter(fun({Assigned_rfp_no, _, _, _, _}) ->
-      Assigned_rfp_no == Rfp_no end, Rfps),
+    lists:filter(fun({ _, In1, Out1, _}) ->
+      {In1, Out1} == {Input, Out} end, Rfps),
   case Request_record of
     [] -> true;  %% do nothing
-    _ -> [{_, Prime_rfp_no, _, In, Out} | _] = Request_record,
-         send_msg({bid, {Prime_rfp_no, In, Out, [Name | Services], cost:add(Prop_cost,Cost)}})
-         %% broker_agent ! {bid, {Prime_rfp_no, In, Out,
-         %%      [Name | Services], cost:add(Prop_cost,Cost)}}
+    _ -> [{_, Input, Out, _} | _] = Request_record,
+         send_msg({bid, {Input, Out, [Name | Services], cost:add(Prop_cost,Cost)}})
   end,
   Rfps.
 
 send_msg(Message) ->
+  {foo, foo@dlsMacAir} ! Message,
   broker_agent ! Message.
 
 send_msg(Pid, Message) ->
