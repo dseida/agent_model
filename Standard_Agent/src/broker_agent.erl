@@ -10,10 +10,10 @@
 -author("David Seida").
 
 %% API
--export([start/0, stop/0, status/0, reset/0, new_rfp/1, loop/0, start_agents/0]).
+-export([start/1, stop/0, status/0, reset/0, new_rfp/1, loop/1, start_agents/1]).
 
-start() ->
-  Pid = spawn(broker_agent, loop, []),
+start(Config_no) ->
+  Pid = spawn(broker_agent, loop, [Config_no]),
   register(broker_agent, Pid),
   ok.
 
@@ -39,42 +39,68 @@ new_rfp(Problem) ->
   broker_agent ! {rfp, Problem},
   receive
     {rfp_no, Broker_response} -> {rfp_no, Broker_response}
+  after
+    10000 -> {error, "No response from broker_agent"}
   end.
 
 
 
 
-start_agents() ->
-  Config1 = {agent1, [1], [2], [1]},
-  Config2 = {agent2, [2], [3], [1]},
-  Config3 = {agent3, [3], [4], [1]},
-  Config4 = {agent4, [4], [5], [1]},
-  Config5 = {agent5, [5], [6], [1]},
-  Config6 = {agent6, [6], [7], [1]},
-  Config7 = {agent7, [7], [8], [1]},
-  Config8 = {agent8, [8], [9], [1]},
-  Config9 = {agent9, [9], [10], [1]},
-  Config10 = {agent10, [3],[5], [4]},
-  Config11 = {agent11, [4], [7], [2]},
-  Config12 = {agent12, [1], [12], [10]},
-  Config13 = {agent13, [12], [11], [3]},
-  spawn(standard_agent, start, [Config1]),
-  spawn(standard_agent, start, [Config2]),
-  spawn(standard_agent, start, [Config3]),
-  spawn(standard_agent, start, [Config4]),
-  spawn(standard_agent, start, [Config5]),
-  spawn(standard_agent, start, [Config6]),
-  spawn(standard_agent, start, [Config7]),
-  spawn(standard_agent, start, [Config8]),
-  spawn(standard_agent, start, [Config9]),
-  spawn(standard_agent, start, [Config10]),
-  spawn(standard_agent, start, [Config11]),
-  spawn(standard_agent, start, [Config12]),
-  spawn(standard_agent, start, [Config13]),
-  [agent1, agent2, agent3, agent4, agent5, agent6, agent7, agent8, agent9, agent10, agent11, agent12, agent13].
+start_agents(Config_no) ->
+  case Config_no of
+    1 -> Config1 = {agent1, [1], [2], [1]},
+         Config2 = {agent2, [2], [3], [1]},
+         Config3 = {agent3, [3], [4], [1]},
+         Config4 = {agent4, [4], [5], [1]},
+         Config5 = {agent5, [5], [6], [1]},
+         Config6 = {agent6, [6], [7], [1]},
+         Config7 = {agent7, [7], [8], [1]},
+         Config8 = {agent8, [8], [9], [1]},
+         Config9 = {agent9, [9], [10], [1]},
+         Config10 = {agent10, [3],[5], [4]},
+         Config11 = {agent11, [4], [7], [2]},
+         Config12 = {agent12, [1], [12], [10]},
+         Config13 = {agent13, [12], [11], [3]},
+         spawn(standard_agent, start, [Config1]),
+         spawn(standard_agent, start, [Config2]),
+         spawn(standard_agent, start, [Config3]),
+         spawn(standard_agent, start, [Config4]),
+         spawn(standard_agent, start, [Config5]),
+         spawn(standard_agent, start, [Config6]),
+         spawn(standard_agent, start, [Config7]),
+         spawn(standard_agent, start, [Config8]),
+         spawn(standard_agent, start, [Config9]),
+         spawn(standard_agent, start, [Config10]),
+         spawn(standard_agent, start, [Config11]),
+         spawn(standard_agent, start, [Config12]),
+         spawn(standard_agent, start, [Config13]),
+         [agent1, agent2, agent3, agent4, agent5, agent6, agent7, agent8, agent9, agent10,
+           agent11, agent12, agent13, {broker_agent, test@dlsMacAir}];
+    _ -> Config1 = {agent14, [11], [12], [1]},
+         Config2 = {agent15, [12], [13], [1]},
+         Config3 = {agent16, [13], [14], [1]},
+         Config4 = {agent17, [14], [15], [1]},
+         Config5 = {agent18, [15], [16], [1]},
+         Config6 = {agent19, [16], [17], [1]},
+         Config7 = {agent20, [17], [18], [1]},
+         Config8 = {agent21, [18], [19], [1]},
+         Config9 = {agent22, [19], [20], [1]},
+         Config10 = {agent23, [3],[15], [4]},
+         spawn(standard_agent, start, [Config1]),
+         spawn(standard_agent, start, [Config2]),
+         spawn(standard_agent, start, [Config3]),
+         spawn(standard_agent, start, [Config4]),
+         spawn(standard_agent, start, [Config5]),
+         spawn(standard_agent, start, [Config6]),
+         spawn(standard_agent, start, [Config7]),
+         spawn(standard_agent, start, [Config8]),
+         spawn(standard_agent, start, [Config9]),
+         spawn(standard_agent, start, [Config10]),
+         [agent14, agent15, agent16, agent17, agent18, agent19, agent20, agent21, agent22, agent23, {broker_agent, prime@dlsMacAir}]
+    end.
 
-loop() ->
-  Agent_list = start_agents(),
+loop(Config_no) ->
+  Agent_list = start_agents(Config_no),
   loop(Agent_list, [], []).
 
 loop(Agent_list, Past_proposals, Current_rfps) ->
@@ -102,13 +128,16 @@ loop(Agent_list, Past_proposals, Current_rfps) ->
                lists:partition(fun({_, _, Input2, Output2, _, _}) -> {Input2, Output2} == {Input, Output} end, Current_rfps),
       case {Previous_rfp, Current_rfp} of
         {[], []} -> send_msg_to_list(Reply_to, {rfp_no, {"Problem received", Input, Output}}),
-                    send_msg_to_list(Agent_list, {rfp, {{node(), broker_agent}, Input, Output, Prior_Agents}}),
+                    Eff_Agent_List = broker_filter(Agent_list, Reply_to),
+                    send_msg_to_list(Eff_Agent_List, {rfp, {[{broker_agent ,node() }], Input, Output, Prior_Agents}}),
                     %% add problem to RFP list
-                    Rfp_list = [{Reply_to, Prior_Agents, Input, Output, [], []} | Current_rfps],
+                    Rfp_list = [{Reply_to, Prior_Agents, Input, Output, [],
+                      lists:usort(Prior_Agents ++ lists:subtract(Agent_list, Eff_Agent_List))} | Current_rfps],
                     loop(Agent_list, Past_proposals, Rfp_list);
         {[], [{Reply_to1, Rfp_Prior_Agents, _, _, Agent_bids, Agent_nobids}]} ->
                    %% add function to deduplicate agents added to the prior_agents list
-                   Rfp_list =  [{Reply_to1 ++ Reply_to, Prior_Agents ++ Rfp_Prior_Agents, Input, Output, Agent_bids, Agent_nobids} | Rem_Rfp_list],
+                   Rfp_list =  [{lists:usort(Reply_to1 ++ Reply_to), lists:usort(Prior_Agents ++ Rfp_Prior_Agents),
+                                  Input, Output, Agent_bids, Agent_nobids} | Rem_Rfp_list],
                    send_msg_to_list(Reply_to, {rfp_no, {"Problem received", Input, Output}}),
                    loop(Agent_list, Past_proposals, Rfp_list);
         {[{_, _, Services, Cost}], _} -> send_msg_to_list(Reply_to, {rfp_no, {"Problem received", Input, Output}}),
@@ -164,11 +193,11 @@ loop(Agent_list, Past_proposals, Current_rfps) ->
       {Current_rfp, Rem_Rfp_list} =
         lists:partition(fun({_, _, Input1, Output1, _, _}) -> {Input1, Output1} == {Input, Output} end, Current_rfps),
       [{Reply_to, Prior_Agents, Input, Output, Agent_bids, Agent_nobids}] = Current_rfp,
-      New_agent_nobids = [Name | Agent_nobids],
+      New_agent_nobids = lists:usort([Name | Agent_nobids]),
       Rfp_list =  [{Reply_to, Prior_Agents, Input, Output, Agent_bids, New_agent_nobids} | Rem_Rfp_list],
       Rem_agents = lists:subtract(Agent_list, New_agent_nobids),
       if
-        Rem_agents == [] -> send_msg_to_list(Reply_to, {no_bid, {{node(), broker_agent},{Input, Output}}});
+        Rem_agents == [] -> send_msg_to_list(Reply_to, {no_bid, {{broker_agent, node()},{Input, Output}}});
         true -> true
       end,
 
@@ -178,18 +207,26 @@ loop(Agent_list, Past_proposals, Current_rfps) ->
       send_msg_to_list([Pid], {Agent_list, Past_proposals, Current_rfps}),
       loop(Agent_list, Past_proposals, Current_rfps);
 
-    reset -> send_msg_to_list(Agent_list, reset),
-             loop(Agent_list, [], []);
+    reset -> case {Past_proposals, Current_rfps} of
+               {[], []} -> loop(Agent_list, [], []);
+               {_, _} -> send_msg_to_list(Agent_list, reset),
+                         loop(Agent_list, [], [])
+                 end;
 
     stop -> send_msg_to_list(Agent_list, stop),
             ok
   end.
 
+broker_filter(Agent_list, [Pid | []]) ->
+  lists:filter(fun(X) -> X /= Pid end, Agent_list);
+broker_filter(Agent_list, [Pid | Reply_to]) ->
+  New_Agent_list = lists:filter(fun(X) -> X /= Pid end, Agent_list),
+  broker_filter(New_Agent_list, Reply_to).
 
 send_msg_to_list([Pid | []], Info) ->
-  Pid ! Info,
-  {foo, foo@dlsMacAir} ! {Pid, Info};
+  {foo, foo@dlsMacAir} ! {Pid, Info},
+  Pid ! Info;
 send_msg_to_list([Pid | T], Info) ->
-  Pid ! Info,
   {foo, foo@dlsMacAir } ! {Pid, Info},
+  Pid ! Info,
   send_msg_to_list(T, Info).

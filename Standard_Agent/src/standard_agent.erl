@@ -123,5 +123,6 @@ send_msg(Message) ->
   broker_agent ! Message.
 
 send_msg(Pid, Message) ->
+  {foo, foo@dlsMacAir} ! Message,
   Pid ! Message.
 
