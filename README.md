@@ -27,4 +27,76 @@ requester of the inability to solve the problem.
 The current implementation does support multiple brokers to communicate with each other to solve problems.  And it works
 on some problems and configurations.  However, there remain termination issues on some problems and endless loops can occur.
 
+Broker_agents currently support the following messages:
+
+   1)  rfp,
+   2)  bid,
+   3)  no_bid,
+   4)  status,
+   5)  reset, and
+   6)  stop.
+
+The rfp message is sent to the broker_agent and triggers the search for the path from an input node to an output node.
+If successfully completed, the broker_agent will send a bid message to all processes in the Reply_to list for each solution
+that is found.  The rfp message is of the form
+
+   {rfp, Problem}
+
+where rfp is the atom rfp, Problem is a variable of the form
+
+   Problem = {Reply_to, Input, Output, Prior_Nodes}
+
+and
+
+   Reply_to = [ list of processes to provide the results of the search ],
+   Input = [ list providing a unique description of the input node ],
+   Output = [ list providing a unique description of the output node],
+   Prior_Nodes = [ list of nodes that the problem has already been through (to help prevent getting stuck in cycles in the graph) ].
+
+
+The bid message is of the form
+
+   {bid, proposal}
+
+where bid is the atom bid, Proposal is a variable of the form
+
+   Proposal = {Input, Output, Services, Cost}
+
+and
+
+   Input = [ list providing a unique description of the input node ],
+   Output = [ list providing a unique description of the output node],
+   Services = [ ordered list of service edges to traverse to go from the input node to the output node],
+   Cost = [ list describing the total cost of the traverse described by Services].
+
+The no_bid message is of the form
+
+   {no_bid, {Name, {Input, Output}}}
+
+where bid is the atom bid and
+
+   Name = Agent_name (uniquely assigned for each graph edge)
+   Input = [ list providing a unique description of the input node for the problem being no-bid ],
+   Output = [ list providing a unique description of the output node for the problem being no-bid ].
+
+
+The status message is of the form
+
+   {status, Pid}
+
+where status is the atom status and Pid is the process id to deliver the status information.
+
+
+The reset message is of the form
+
+   reset
+
+where reset is the atom reset.
+
+
+The stop message is of the form
+
+   stop
+
+where stop is the atom stop.
 
