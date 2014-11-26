@@ -61,8 +61,13 @@ loop(Config, Rfps) ->
 %% Trivial case - Inputs and Outputs match
 %% Immediately send bid to broker
 %% Return empty list
-review_rfp({Name, In, Out, Cost}, {_, In, Out, _}) ->
-  send_msg({bid, {In, Out, [Name], Cost}}),
+review_rfp({Name, In, Out, Cost}, {_, In, Out, Prior_Agents}) ->
+  case lists:member(Name, Prior_Agents) of
+    true ->
+      send_msg({no_bid, {Name, {In, Out}}});
+    false ->
+      send_msg({bid, {In, Out, [Name], Cost}})
+  end,
   [];
 %% Case 1 - Inputs match but Outputs do not
 %% If Agent is in the existing chain of bidders -> no bid
@@ -114,15 +119,19 @@ update_rfp({Name, Input, _, Cost}, Rfps, Proposal) ->
   case Request_record of
     [] -> true;  %% do nothing
     _ -> [{_, Input, Out, _} | _] = Request_record,
-         send_msg({bid, {Input, Out, [Name | Services], cost:add(Prop_cost,Cost)}})
+         Circle_detect = lists:member(Name, Services),
+         if
+           Circle_detect -> do_nothing;
+           true -> send_msg({bid, {Input, Out, [Name | Services], cost:add(Prop_cost,Cost)}})
+         end
   end,
   Rfps.
 
 send_msg(Message) ->
-  {foo, foo@dlsMacAir} ! Message,
+  {recorder, foo@dlsMacAir} ! {{"From:", {self(), node()}}, {"To:", broker_agent}, Message},
   broker_agent ! Message.
 
 send_msg(Pid, Message) ->
-  {foo, foo@dlsMacAir} ! Message,
+  {recorder, foo@dlsMacAir} ! {{"From:", {self(), node()}}, {"To:", Pid}, Message},
   Pid ! Message.
 
