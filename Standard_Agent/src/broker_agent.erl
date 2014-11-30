@@ -34,8 +34,8 @@ reset() ->
 new_rfp(Problem) ->
   %% add logic to send {error, "Invalid Problem"} to calling routine if Problem does not meet the form {Submittor, Input, Output}
   %% where Input and Output are lists within the tuple
-  %%  Problem = {Reply_to, Input, Output, Prior_Agents}
-  %%  Prior_Agents = [] for non-agents;  Agents will add their name to the list
+  %%  Problem = {Reply_to, Input, Output, Prior_Nodes}
+  %%  Prior_Nodes = [] for non-agents;  Agents will add their name to the list
   send_msg_to_list([broker_agent] , {rfp, Problem}),
   receive
     {rfp_no, Broker_response} -> {rfp_no, Broker_response}
@@ -127,44 +127,52 @@ loop(Config_no) ->
   loop(Agent_list, [], []).
 
 loop(Agent_list, Past_proposals, Current_rfps) ->
-  %%  Past_proposals = [{Input, Output, Services, Cost}, ... ]
-  %%  Rfp_list = [{Reply_to, Prior_Agents, Input, Output, Agent_bids, Agent_nobids}, ...]
+  %%  Past_proposals = [{Input, Output, Prior_Nodes, Services, Cost}, ... ]
+  %%  Rfp_list = [{Reply_to, Prior_Nodes, Input, Output, Agent_bids, Agent_nobids}, ...]
   %%  Reply_to = [ Pid, ...]
-  %%  Prior_Agents = [ Agent_name, ...]
-  %%  Input = [ ...]
-  %%  Output = [ ... ]
+  %%  Prior_Nodes = [ Node_Desc, ...]
+  %%  Input = [ In_Node_Desc ]
+  %%  Output = [ Out_Node_Desc ]
   %%  Agent_bids = [ Agent_name, ...]
   %%  Services = [ AgentX, ...]
   %%  Cost = [ Cost_factor1, ...]
   %%  Agent_nobids = [ Agent_nameX, ...]
   receive
-    %%  Problem = {Reply_to, Input, Output, Prior_Agents}
+    %%  Problem = {Reply_to, Input, Output, Prior_Nodes}
     {rfp, Problem} ->
       %% 1)  Check to see if the problem has already been solved
       %%     If so, return the RFP parameters and then mail the result to the requester
       %% 2)  Check to see if we are already working on the problem
       %%     If so, add the new submittor to the Reply_to list and acknowledge the rfp to new submittor
       %% 3)  Otherwise, add the problem to RFP_list, return the rfp acknowledgement, and send the problem to the agents
-      {Reply_to, Input, Output, Prior_Agents} = Problem,
-      Previous_rfp = lists:filter(fun({Input1, Output1, _, _}) -> {Input1, Output1} == {Input, Output} end, Past_proposals),
+      {Reply_to, Input, Output, Prior_Nodes} = Problem,
+      Previous_rfp = lists:filter(fun({Input1, Output1, Prior_Nodes1, _, _}) ->
+               {Input1, Output1, Prior_Nodes1} == {Input, Output, Prior_Nodes} end, Past_proposals),
       {Current_rfp, Rem_Rfp_list} =
-               lists:partition(fun({_, _, Input2, Output2, _, _}) -> {Input2, Output2} == {Input, Output} end, Current_rfps),
+               lists:partition(fun({_, Prior_Nodes2, Input2, Output2, _, _}) ->
+                 {Input2, Output2, Prior_Nodes2} == {Input, Output, Prior_Nodes} end, Current_rfps),
+      Eff_Agent_List = broker_filter(Agent_list, Reply_to),
       case {Previous_rfp, Current_rfp} of
-        {[], []} -> send_msg_to_list(Reply_to, {rfp_no, {"Problem received", Input, Output}}),
-                    Eff_Agent_List = broker_filter(Agent_list, Reply_to),
-                    send_msg_to_list(Eff_Agent_List, {rfp, {[{broker_agent ,node() }], Input, Output, Prior_Agents}}),
+        {[], []} -> send_msg_to_list(Reply_to, {rfp_no, {"Problem received", Input, Output, Prior_Nodes}}),
+                    send_msg_to_list(Eff_Agent_List, {rfp, {[{broker_agent ,node() }], Input, Output, Prior_Nodes}}),
                     %% add problem to RFP list
-                    Rfp_list = [{Reply_to, Prior_Agents, Input, Output, [],
-                      lists:usort(Prior_Agents ++ lists:subtract(Agent_list, Eff_Agent_List))} | Current_rfps],
+                    Rfp_list = [{Reply_to, Prior_Nodes, Input, Output, [],
+                      lists:usort(lists:subtract(Agent_list, Eff_Agent_List))} | Current_rfps],
                     loop(Agent_list, Past_proposals, Rfp_list);
-        {[], [{Reply_to1, Rfp_Prior_Agents, _, _, Agent_bids, Agent_nobids}]} ->
-                   %% add function to deduplicate agents added to the prior_agents list
-                   Rfp_list =  [{lists:usort(Reply_to1 ++ Reply_to), lists:usort(Prior_Agents ++ Rfp_Prior_Agents),
-                                  Input, Output, Agent_bids, lists:usort(Agent_nobids++Rfp_Prior_Agents)} | Rem_Rfp_list],
-                   send_msg_to_list(Reply_to, {rfp_no, {"Problem received", Input, Output}}),
+        {[], [{Reply_to1, Rfp_Prior_Nodes, _, _, Agent_bids, Agent_nobids}]} ->
+                   %% add function to deduplicate agents added to the Prior_Nodes list
+                   New_agent_nobids = lists:usort(lists:subtract(Agent_list, Eff_Agent_List) ++ Agent_nobids),
+                   Rfp_list =  [{lists:usort(Reply_to1 ++ Reply_to), Rfp_Prior_Nodes,
+                                  Input, Output, Agent_bids, New_agent_nobids} | Rem_Rfp_list],
+                   send_msg_to_list(Reply_to, {rfp_no, {"Problem received", Input, Output, Prior_Nodes}}),
+                   Rem_agents = lists:subtract(Agent_list, New_agent_nobids),
+                   if
+                      Rem_agents == [] -> send_msg_to_list(Reply_to, {no_bid, {{broker_agent, node()},{Input, Output, Prior_Nodes}}});
+                      true -> true
+                   end,
                    loop(Agent_list, Past_proposals, Rfp_list);
-        {[{_, _, Services, Cost}], _} -> send_msg_to_list(Reply_to, {rfp_no, {"Problem received", Input, Output}}),
-                                               send_msg_to_list(Reply_to, {bid, {Input, Output, Services, Cost}}),
+        {[{_, _, _, Services, Cost}], _} -> send_msg_to_list(Reply_to, {rfp_no, {"Problem received", Input, Output, Prior_Nodes}}),
+                                               send_msg_to_list(Reply_to, {bid, {Input, Output, Prior_Nodes, Services, Cost}}),
                                                loop(Agent_list, Past_proposals, Current_rfps)
       end;
 
@@ -175,31 +183,33 @@ loop(Agent_list, Past_proposals, Current_rfps) ->
       %%     update the list based on this proposal and send the new proposal to the Reply_to list.
       %% 4)  Find the RFP in the Current_rfps list and indicate which agent provided a bid.
       %% {Input, Output, Services, Cost} = Proposal
-      %% Rfp_list = [{Reply_to, Prior_Agents, Input, Output, Agent_bids, Agent_nobids}, ...]
-      {Input, Output, Services, Cost} = Proposal,
+      %% Rfp_list = [{Reply_to, Prior_Nodes, Input, Output, Agent_bids, Agent_nobids}, ...]
+      {Input, Output, Prior_Nodes, Services, Cost} = Proposal,
       [Agent | _] = Services,
       {Previous_rfp, Prev_rfp_list} =
-        lists:partition(fun({Input_old, Output_old, _, _}) -> {Input, Output} == {Input_old, Output_old} end, Past_proposals),
+        lists:partition(fun({Input_old, Output_old, Prior_Nodes_old, _, _}) ->
+          {Input, Output, Prior_Nodes} == {Input_old, Output_old, Prior_Nodes_old} end, Past_proposals),
       {Current_rfp, Rem_Rfp_list} =
-        lists:partition(fun({_, _, Input_curr, Output_curr, _, _}) -> {Input, Output} == {Input_curr, Output_curr} end, Current_rfps),
+        lists:partition(fun({_, Prior_Nodes_curr, Input_curr, Output_curr, _, _}) ->
+          {Input, Output, Prior_Nodes} == {Input_curr, Output_curr, Prior_Nodes_curr} end, Current_rfps),
       case {Previous_rfp, Current_rfp} of
         {[], []} ->
           %% Proposal is not a current RFP or a previous RFP --> ignore and process the next message
           loop(Agent_list, Past_proposals, Current_rfps);
-        {[], [{Reply_to, Prior_Agents, _, _, Agent_bids, Agent_nobids}]} ->
-          Rfp_list =  [{Reply_to, Prior_Agents, Input, Output, [Agent | Agent_bids], Agent_nobids} | Rem_Rfp_list],
+        {[], [{Reply_to, Prior_Nodes, _, _, Agent_bids, Agent_nobids}]} ->
+          Rfp_list =  [{Reply_to, Prior_Nodes, Input, Output, [Agent | Agent_bids], Agent_nobids} | Rem_Rfp_list],
           New_past_props =  [Proposal | Prev_rfp_list],
           send_msg_to_list(Reply_to, {bid, Proposal}),
           loop(Agent_list, New_past_props, Rfp_list);
-        {[{ _, _, _, Cost1}], [{Reply_to, Prior_Agents, _, _, Agent_bids, Agent_nobids}]} ->
+        {[{ _, _,  _, _, Cost1}], [{Reply_to, Prior_Nodes, _, _, Agent_bids, Agent_nobids}]} ->
           Ccost1 = cost:calculate(Cost1),
           Ccost = cost:calculate(Cost),
           Rfp_list = case lists:member(Agent, Agent_bids) of
-                       false -> [{Reply_to, Prior_Agents, Input, Output, [Agent | Agent_bids], Agent_nobids} | Rem_Rfp_list];
+                       false -> [{Reply_to, Prior_Nodes, Input, Output, [Agent | Agent_bids], Agent_nobids} | Rem_Rfp_list];
                        true -> Current_rfps
                      end,
 
-          send_msg_to_list(Reply_to, {bid, {Input, Output, Services, Cost}}),
+          send_msg_to_list(Reply_to, {bid, {Input, Output, Prior_Nodes, Services, Cost}}),
           if
             Ccost1 > Ccost ->
               New_past_props =  [Proposal | Prev_rfp_list],
@@ -209,18 +219,19 @@ loop(Agent_list, Past_proposals, Current_rfps) ->
           end
       end;
 
-    {no_bid, {Name, {Input, Output}}} ->
+    {no_bid, {Name, {Input, Output, Prior_Nodes}}} ->
       %% 1)  Update the Rfp list that the specified agent has no bid.
       %% 2)  Check to see if all other agents have no bid.  If so send a no bid response to the Reply_to list.
       %%  Rfp_list = no_bid(Name, Current_rfps, Rfp_no),
       {Current_rfp, Rem_Rfp_list} =
-        lists:partition(fun({_, _, Input1, Output1, _, _}) -> {Input1, Output1} == {Input, Output} end, Current_rfps),
-      [{Reply_to, Prior_Agents, Input, Output, Agent_bids, Agent_nobids}] = Current_rfp,
+        lists:partition(fun({_, Prior_Nodes1, Input1, Output1, _, _}) ->
+          {Input1, Output1, Prior_Nodes1} == {Input, Output, Prior_Nodes} end, Current_rfps),
+      [{Reply_to, Prior_Nodes, Input, Output, Agent_bids, Agent_nobids}] = Current_rfp,
       New_agent_nobids = lists:usort([Name | Agent_nobids]),
-      Rfp_list =  [{Reply_to, Prior_Agents, Input, Output, Agent_bids, New_agent_nobids} | Rem_Rfp_list],
+      Rfp_list =  [{Reply_to, Prior_Nodes, Input, Output, Agent_bids, New_agent_nobids} | Rem_Rfp_list],
       Rem_agents = lists:subtract(Agent_list, New_agent_nobids),
       if
-        Rem_agents == [] -> send_msg_to_list(Reply_to, {no_bid, {{broker_agent, node()},{Input, Output}}});
+        Rem_agents == [] -> send_msg_to_list(Reply_to, {no_bid, {{broker_agent, node()},{Input, Output, Prior_Nodes}}});
         true -> true
       end,
 
