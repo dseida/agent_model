@@ -82,11 +82,15 @@ and
 
 The **bid message** is of the form
 
+```erlang
    {bid, proposal}
+```
 
 where bid is the atom bid, Proposal is a variable of the form
 
+```erlang
    Proposal = {Input, Output, Services, Cost}
+```
 
 and
 
@@ -97,7 +101,9 @@ and
 
 The **no_bid message** is of the form
 
+```erlang
    {no_bid, {Name, {Input, Output}}}
+```
 
 where bid is the atom bid and
 
@@ -108,14 +114,18 @@ where bid is the atom bid and
 
 The **status message** is of the form
 
+```erlang
    {status, Pid}
+```
 
 where status is the atom status and Pid is the process id to deliver the status information.
 
 
 The **reset message** is of the form
 
+```erlang
    reset
+```
 
 where reset is the atom reset.
 
