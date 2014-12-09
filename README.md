@@ -112,7 +112,7 @@ The **no_bid message** is of the form
    {no_bid, {Name, {Input, Output}}}
 ```
 
-where bid is the atom bid and
+where no_bid is the atom no_bid and
 
 ```
    Name = Agent_name (uniquely assigned for each graph edge),
