@@ -10,7 +10,7 @@
 -author("David Seida").
 
 %% API
--export([start/1, stop/0, status/0, reset/0, new_rfp/1, loop/1, start_agents/1]).
+-export([start/1, stop/0, status/0, reset/0, new_rfp/1, loop/1, start_agents/1, best_current/1]).
 
 start(Config_no) ->
   Pid = spawn(broker_agent, loop, [Config_no]),
@@ -43,7 +43,8 @@ new_rfp(Problem) ->
     10000 -> {error, "No response from broker_agent"}
   end.
 
-
+best_current(Problem) ->
+  send_msg_to_list([broker_agent] , {best_current, Problem}).
 
 
 start_agents(Config_no) ->
@@ -130,7 +131,7 @@ loop(Agent_list, Past_proposals, Current_rfps) ->
   %%  Past_proposals = [{Input, Output, Prior_Nodes, Services, Cost}, ... ]
   %%  Rfp_list = [{Reply_to, Prior_Nodes, Input, Output, Agent_bids, Agent_nobids}, ...]
   %%  Reply_to = [ Pid, ...]
-  %%  Prior_Nodes = [ Node_Desc, ...]
+  %%  Prior_Nodes = [ Node_Desc, ...] -> currently order specific -> add lists:reverse(lists:usort(Prior_Nodes))
   %%  Input = [ In_Node_Desc ]
   %%  Output = [ Out_Node_Desc ]
   %%  Agent_bids = [ Agent_name, ...]
@@ -175,6 +176,21 @@ loop(Agent_list, Past_proposals, Current_rfps) ->
                                                send_msg_to_list(Reply_to, {bid, {Input, Output, Prior_Nodes, Services, Cost}}),
                                                loop(Agent_list, Past_proposals, Current_rfps)
       end;
+
+    {best_current, Problem} ->
+      %% 1)  Check to see if the problem has already been solved
+      %%     If so, return the RFP parameters and then mail the result to the requester
+      %% 2)  Check to see if we are already working on the problem
+      %%     If so, add the new submittor to the Reply_to list and acknowledge the rfp to new submittor
+      %% 3)  Otherwise, add the problem to RFP_list, return the rfp acknowledgement, and send the problem to the agents
+      {Reply_to, Input, Output, Prior_Nodes} = Problem,
+      Previous_props = lists:filter(fun({Input1, Output1, _, _, _}) ->
+        {Input1, Output1} == {Input, Output} end, Past_proposals),
+      Best_prior = search_prior_results( Previous_props, Prior_Nodes),
+      send_msg_to_list(Reply_to, Best_prior),
+      loop(Agent_list, Past_proposals, Current_rfps);
+
+
 
     {bid, Proposal} ->
       %% 1)  Check past_proposals list for the input and output.
@@ -251,6 +267,40 @@ loop(Agent_list, Past_proposals, Current_rfps) ->
            {foo, foo@dlsMacAir} ! {node(), Past_proposals, Current_rfps},
             ok
   end.
+
+search_prior_results( [], _Prior_Nodes) ->
+  "best_current - No paths currently known";
+search_prior_results( Previous_props, Prior_Nodes) ->
+  search_prior_results( Previous_props, Prior_Nodes, []).
+
+search_prior_results( [], _Prior_Nodes, []) ->
+  "best_current - No paths currently known";
+search_prior_results( [], _Prior_Nodes, [Best_answer]) ->
+  Best_answer;
+search_prior_results( [Curr_bid | Rem_props], Prior_Nodes, [] ) ->
+  {_, _, Bid_prior_nodes, _, _} = Curr_bid,
+  Node_delta = lists:subtract(Prior_Nodes, Bid_prior_nodes),
+  case Node_delta of
+    [] -> search_prior_results(Rem_props, Prior_Nodes, [Curr_bid]);
+    _ -> search_prior_results(Rem_props, Prior_Nodes, [])
+  end;
+search_prior_results( [Curr_bid | Rem_props], Prior_Nodes, [Curr_best]) ->
+  {_, _, Bid_prior_nodes, _, Curr_cost} = Curr_bid,
+  {_, _, _, _, Curr_best_cost} = Curr_best,
+  Node_delta = lists:subtract(Prior_Nodes, Bid_prior_nodes),
+  case Node_delta of
+    [] ->
+      Curr_cost_val = cost:calculate(Curr_cost),
+      Curr_best_cost_val = cost:calculate(Curr_best_cost),
+      Bid_choice = if
+                     Curr_cost_val < Curr_best_cost_val -> Curr_bid;
+                     true -> Curr_best
+                   end,
+      search_prior_results(Rem_props, Prior_Nodes, [Bid_choice]);
+    _ -> search_prior_results(Rem_props, Prior_Nodes, [Curr_best])
+  end.
+
+
 
 broker_filter(Agent_list, [Pid | []]) ->
   lists:filter(fun(X) -> X /= Pid end, Agent_list);
