@@ -56,7 +56,7 @@ where rfp is the atom rfp, Problem is a variable of the form
 
 and
 
-```erlang
+```
    Reply_to = [ list of processes to provide the results of the search ],
    Input = [ list providing a unique description of the input node ],
    Output = [ list providing a unique description of the output node],
