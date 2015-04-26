@@ -18,7 +18,7 @@
 %%  {Name, Agent_In, Agent_Out, Cost} = Config
 start(Config) ->
   {Name, _, _, _} = Config,
-  Pid = spawn(standard_agent, loop, [Config]),
+  Pid = spawn(bus_agent, loop, [Config]),
   register(Name, Pid),
   ok.
 
@@ -63,7 +63,7 @@ loop(Config) ->
 
 %% Case 1
 review_rfp({Name, In, Out, Cost}, {Reply_to, In, Out, [], [], _}) ->
-  send_msg(Reply_to, {bid, {In, Out, [Name], [Out, In], Cost}}),
+  bus_super:send_msg_to_list(Reply_to, {bid, {In, Out, [Name], [Out, In], Cost}}),
   [];
 
 %% Case 2
@@ -72,28 +72,28 @@ review_rfp({Name, In, Agent_Out, Cost}, {Reply_to, In, Rfp_Out, [], [], _}) ->
   [];
 
 %% Case 3
-review_rfp({Name, Agent_In, Out, Cost}, {Reply_to, In, Out, Agent_List, [Agent_In | Prior_Nodes], Cost_Vec}) ->
-  send_msg(Reply_to, {bid, {In, Out, [Name | Agent_List], [Out | [In | Prior_Nodes]], cost:add(Cost, Cost_Vec)}}),
+review_rfp({Name, Agent_In, Out, Cost}, {Reply_to, In, Out, Agent_List, [Agent_In | Prior_Nodes], Cost_current}) ->
+  bus_super:send_msg_to_list(Reply_to, {bid, {In, Out, [Name | Agent_List], [Out | [Agent_In | Prior_Nodes]], cost:add(Cost, Cost_current)}}),
   [];
 
 %% Case 4
-review_rfp({Name, Agent_In, Agent_Out, Cost}, {Reply_to, In, Out, Agent_List, [Agent_In | Prior_Nodes], Cost_Vec}) ->
+review_rfp({Name, Agent_In, Agent_Out, Cost}, {Reply_to, In, Out, Agent_List, [Agent_In | Prior_Nodes], Cost_current}) ->
   case lists:member(Agent_Out, Prior_Nodes) of
     true ->
       [];
     false ->
-      send_msg({rfp, {Reply_to, In, Out, [Name |Agent_List], [Agent_Out | [Agent_In | Prior_Nodes]], cost:add(Cost, Cost_Vec)}})
+      send_msg({rfp, {Reply_to, In, Out, [Name |Agent_List], [Agent_Out | [Agent_In | Prior_Nodes]], cost:add(Cost, Cost_current)}})
   end,
   [];
 
 %% Case 5
-review_rfp({_Name, _, _, _}, {_, _In, _Out, _Prior_Nodes}) ->
+review_rfp(_Config, _Cand_Rfp) ->
   [].
 
 
 send_msg(Message) ->
-  {recorder, foo@dlsMacAir} ! {{"From:", {self(), node()}}, {"To:", broker_agent}, Message},
-  broker_agent ! Message.
+  {recorder, foo@dlsMacAir} ! {{"From:", {self(), node()}}, {"To:", bus}, Message},
+  bus_super:send_msg({self(), node()}, Message).
 
 send_msg(Pid, Message) ->
   {recorder, foo@dlsMacAir} ! {{"From:", {self(), node()}}, {"To:", Pid}, Message},
